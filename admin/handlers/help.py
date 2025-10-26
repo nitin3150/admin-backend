@@ -38,7 +38,7 @@ async def get_tickets(websocket: WebSocket, filters: dict, db):
                 # Get user info for this ticket
                 user_info = None
                 if ticket.get("user_id"):
-                    user_info = await db.find_one("users", {"_id": ticket["user_id"]})
+                    user_info = await db.find_one("users", {"id": ticket["user_id"]})
                 
                 # Manual serialization to handle datetime objects
                 serialized_ticket = {
@@ -54,6 +54,7 @@ async def get_tickets(websocket: WebSocket, filters: dict, db):
                     "admin_response": ticket.get("admin_response"),
                     "responded_at": ticket.get("responded_at").isoformat() if ticket.get("responded_at") else None,
                     "order_id": str(ticket["order_id"]) if ticket.get("order_id") else None,
+                    # "user_info": user_info["name","email","phone","role"],
                 }
                 # Add user information
                 if user_info:
@@ -65,7 +66,7 @@ async def get_tickets(websocket: WebSocket, filters: dict, db):
                     serialized_ticket["user_name"] = ticket.get("user_name", "Unknown")
                     serialized_ticket["user_email"] = ticket.get("user_email", "Unknown")
                     serialized_ticket["user_phone"] = "Not provided"
-                # print(serialized_ticket)
+               
                 # Add message count and latest message info
                 messages = ticket.get("messages", [])
                 serialized_ticket["message_count"] = len(messages)
@@ -186,7 +187,7 @@ async def get_ticket_detail(websocket: WebSocket, data: dict, db):
         # Get user information
         user_info = None
         if ticket.get("user_id"):
-            user_info = await db.find_one("users", {"_id": ticket["user_id"]})
+            user_info = await db.find_one("users", {"id": ticket["user_id"]})
         
         # Manual serialization with proper datetime handling
         serialized_ticket = {
@@ -204,8 +205,11 @@ async def get_ticket_detail(websocket: WebSocket, data: dict, db):
             "order_id": str(ticket["order_id"]) if ticket.get("order_id") else None,
         }
         
-        # Add user information
+        # ✅ FIX: Add user information at ROOT level (same as get_tickets)
         if user_info:
+            serialized_ticket["user_name"] = user_info.get("name", "Unknown")
+            serialized_ticket["user_email"] = user_info.get("email", "Unknown")
+            serialized_ticket["user_phone"] = user_info.get("phone", "Not provided")  # ✅ ADDED
             serialized_ticket["user_info"] = {
                 "name": user_info.get("name", "Unknown"),
                 "email": user_info.get("email", "Unknown"),
@@ -215,10 +219,13 @@ async def get_ticket_detail(websocket: WebSocket, data: dict, db):
             }
         else:
             # Use ticket's stored user info as fallback
+            serialized_ticket["user_name"] = ticket.get("user_name", "Unknown")
+            serialized_ticket["user_email"] = ticket.get("user_email", "Unknown")
+            serialized_ticket["user_phone"] = ticket.get("user_phone", "Not provided")  # ✅ ADDED
             serialized_ticket["user_info"] = {
                 "name": ticket.get("user_name", "Unknown"),
                 "email": ticket.get("user_email", "Unknown"),
-                "phone": "Not provided",
+                "phone": ticket.get("user_phone", "Not provided"),  # ✅ Try from ticket first
                 "role": "user",
                 "created_at": None
             }

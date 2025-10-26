@@ -12,6 +12,7 @@ from admin.handlers.help import get_tickets,get_ticket_detail,get_ticket_stats,u
 from admin.handlers.requests import get_requests,update_requests_status
 from admin.handlers.coupons import get_coupons,create_coupons,update_coupon,delete_coupon,toggle_coupon
 from admin.handlers.shop_status import get_shop_status,update_shop_status
+from admin.handlers.porter import get_porter_requests, update_porter_request_status, assign_porter_partner, get_porter_stats
 from admin.handlers.auth import (
     handle_get_users, 
     handle_update_user_role, 
@@ -320,6 +321,18 @@ async def handle_admin_messages(websocket: WebSocket, user_info: dict):
             elif msg_type == "get_notification_stats":
                 await get_notification_stats(websocket, db)
                 
+            elif msg_type == "get_porter_requests":
+                await get_porter_requests(websocket, message.get("filters", {}), db)
+            
+            elif msg_type == "update_porter_request_status":
+                await update_porter_request_status(websocket, message.get("data"), db)
+            
+            elif msg_type == "assign_porter_partner":
+                await assign_porter_partner(websocket, message.get("data"), db)
+            
+            elif msg_type == "get_porter_stats":
+                await get_porter_stats(websocket, message.get("data"), db)
+
             else:
                 logger.warning(f"Unknown message type: {msg_type}")
                 await websocket.send_json({
