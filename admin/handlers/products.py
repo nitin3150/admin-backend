@@ -82,6 +82,8 @@ async def create_product(websocket: WebSocket, data: dict, user_info: dict, db):
             "id": custom_id,
             "name": data["name"],
             "description": data["description"],
+            "cost_price": float(data["cost_price"]) if data.get("cost_price") else None,
+            "mrp": float(data["mrp"]),
             "price": float(data["price"]),
             "category": category['id'],
             "brand": data["brand"],
@@ -89,12 +91,14 @@ async def create_product(websocket: WebSocket, data: dict, user_info: dict, db):
             "keywords": validate_and_clean_keywords(data.get("keywords", [])),
             "tags": data.get("tags", []),
             "attributes": data.get("attributes", {}),
-            "images": [],  # ✅ Will be populated after upload
+            "images": [],
             "status": data.get("status", "active"),
             "is_active": data.get("status", "active") == "active",
             "created_at": datetime.utcnow(),
             "created_by": user_email,
-            "updated_at": datetime.utcnow()
+            "updated_at": datetime.utcnow(),
+            "allow_user_images": data.get("allow_user_images", False),
+            "allow_user_description": data.get("allow_user_description", False)
         }
         
         # Insert product first
