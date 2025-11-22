@@ -82,6 +82,8 @@ async def create_product(websocket: WebSocket, data: dict, user_info: dict, db):
             "id": custom_id,
             "name": data["name"],
             "description": data["description"],
+            "cost_price": float(data["cost_price"]) if data.get("cost_price") else None,
+            "mrp": float(data["mrp"]),
             "price": float(data["price"]),
             "category": category['id'],
             "brand": data["brand"],
