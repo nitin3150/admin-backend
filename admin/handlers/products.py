@@ -1,51 +1,325 @@
+# import asyncio
+# from webbrowser import get
+# from fastapi import WebSocket
+# import logging
+
+# from bson import ObjectId
+# from datetime import datetime
+
+# logger = logging.getLogger(__name__)
+
+# async def send_products(websocket: WebSocket, db):
+#     """Send all products, categories, and brands to the admin"""
+#     try:
+#         # Fetch all data in parallel
+#         products_cursor = db.find_many("products", {}, sort=[("created_at", -1)])
+#         categories_cursor = db.find_many("categories", {})
+#         brands_cursor = db.find_many("brands", {})
+
+#         products, categories, brands = await asyncio.gather(
+#             products_cursor,
+#             categories_cursor,
+#             brands_cursor
+#         )
+
+#         # Serialize all data
+#         serialized_products = [serialize_document(p) for p in products]
+#         serialized_categories = [serialize_document(c) for c in categories]
+#         serialized_brands = [serialize_document(b) for b in brands]
+
+#         await websocket.send_json({
+#             "type": "products_data",
+#             "products": serialized_products,
+#             "categories": serialized_categories,
+#             "brands": serialized_brands
+#         })
+#     except Exception as e:
+#         logger.error(f"Error sending products data: {e}")
+#         await websocket.send_json({
+#             "type": "error",
+#             "message": "Failed to fetch products data"
+#         })
+
+
 import asyncio
-from webbrowser import get
-from fastapi import WebSocket
-from admin.utils.serialize import serialize_document
+from datetime import datetime
 import logging
+from bson import ObjectId
+from typing import Any, Dict, List
+from admin.utils.serialize import serialize_document
+from fastapi import WebSocket
 from admin.connection_manager import manager
 from admin.config.cloudinary_config import CloudinaryManager
-from bson import ObjectId
-from datetime import datetime
 from admin.utils.id_generator import get_id_generator
 
 id_generator = get_id_generator()
 
 logger = logging.getLogger(__name__)
 
-async def send_products(websocket: WebSocket, db):
-    """Send all products, categories, and brands to the admin"""
+async def handle_get_products(websocket: WebSocket, db):
     try:
-        # Fetch all data in parallel
-        products_cursor = db.find_many("products", {}, sort=[("created_at", -1)])
-        categories_cursor = db.find_many("categories", {})
-        brands_cursor = db.find_many("brands", {})
-
-        products, categories, brands = await asyncio.gather(
-            products_cursor,
-            categories_cursor,
-            brands_cursor
-        )
-
-        # Serialize all data
+        logger.info("📦 Starting handle_get_products")
+        # Query database
+        logger.info("Querying products...")
+        products = await db.find_many("products", {}, sort=[("created_at", -1)])
+        # Query categories
+        logger.info("Querying categories...")
+        categories = await db.find_many("categories", {})
+        
+        # Query brands
+        logger.info("Querying brands...")
+        brands = await db.find_many("brands", {})
+        
+        # 5. Serialize documents (convert ObjectId to string, handle missing fields)
+        logger.info("🔄 Serializing data...")
+        
+        def serialize_product(product: dict) -> dict:
+            """Serialize a product document for JSON"""
+            # Convert ObjectId to string
+            if '_id' in product and isinstance(product['_id'], ObjectId):
+                product['_id'] = str(product['_id'])
+            
+            # Handle missing pricing fields (backward compatibility)
+            if 'actual_price' not in product:
+                product['actual_price'] = product.get('price', 0)
+            if 'selling_price' not in product:
+                product['selling_price'] = product.get('price', 0)
+            if 'discount' not in product:
+                product['discount'] = 0
+            
+            # Handle status field (convert is_active to status)
+            if 'status' not in product:
+                product['status'] = 'active' if product.get('is_active', True) else 'inactive'
+            
+            # Handle new boolean fields
+            if 'allow_user_images' not in product:
+                product['allow_user_images'] = False
+            if 'allow_user_description' not in product:
+                product['allow_user_description'] = False
+            
+            # Handle images field
+            if 'images' not in product:
+                product['images'] = []
+            elif isinstance(product['images'], list):
+                # Ensure images are in correct format
+                normalized_images = []
+                for img in product['images']:
+                    if isinstance(img, str):
+                        # If image is just a URL string
+                        normalized_images.append({
+                            'url': img,
+                            'thumbnail': img,
+                            'public_id': '',
+                            'index': len(normalized_images),
+                            'is_primary': len(normalized_images) == 0
+                        })
+                    elif isinstance(img, dict):
+                        # If image is already an object
+                        normalized_images.append(img)
+                product['images'] = normalized_images
+            
+            # Handle keywords
+            if 'keywords' not in product:
+                product['keywords'] = []
+            
+            # Convert category and brand ObjectIds to strings if needed
+            if 'category' in product and isinstance(product['category'], ObjectId):
+                product['category'] = str(product['category'])
+            if 'brand' in product and isinstance(product['brand'], ObjectId):
+                product['brand'] = str(product['brand'])
+            
+            return product
+        
+        def serialize_category(category: dict) -> dict:
+            """Serialize a category document for JSON"""
+            if '_id' in category and isinstance(category['_id'], ObjectId):
+                category['_id'] = str(category['_id'])
+            
+            # Handle status field
+            if 'status' not in category:
+                category['status'] = 'active' if category.get('is_active', True) else 'inactive'
+            
+            # Handle parentId
+            if 'parentId' in category and isinstance(category['parentId'], ObjectId):
+                category['parentId'] = str(category['parentId'])
+            
+            # Add created_at if missing
+            if 'created_at' not in category and 'createdAt' not in category:
+                category['created_at'] = None
+            
+            return category
+        
+        def serialize_brand(brand: dict) -> dict:
+            """Serialize a brand document for JSON"""
+            if '_id' in brand and isinstance(brand['_id'], ObjectId):
+                brand['_id'] = str(brand['_id'])
+            
+            # Handle status field
+            if 'status' not in brand:
+                brand['status'] = 'active' if brand.get('is_active', True) else 'inactive'
+            
+            # Add created_at if missing
+            if 'created_at' not in brand and 'createdAt' not in brand:
+                brand['created_at'] = None
+            
+            return brand
+        
+        # Apply serialization
+        products = [serialize_product(p) for p in products]
+        categories = [serialize_category(c) for c in categories]
+        brands = [serialize_brand(b) for b in brands]
+        
+        logger.info("✅ Data serialized successfully")
+        
         serialized_products = [serialize_document(p) for p in products]
         serialized_categories = [serialize_document(c) for c in categories]
         serialized_brands = [serialize_document(b) for b in brands]
-
+       
         await websocket.send_json({
-            "type": "products_data",
-            "products": serialized_products,
-            "categories": serialized_categories,
-            "brands": serialized_brands
+            'type': 'products_data',
+            'products': serialized_products,
+            'categories': serialized_categories,
+            'brands': serialized_brands
         })
+        
+        logger.info("✅ Successfully sent products data")
+        
     except Exception as e:
-        logger.error(f"Error sending products data: {e}")
+        logger.error(f"❌ Error in handle_get_products: {str(e)}", exc_info=True)
         await websocket.send_json({
-            "type": "error",
-            "message": "Failed to fetch products data"
+            'type': 'error',
+            'message': f'Failed to get products: {str(e)}'
         })
 
-async def create_product(websocket: WebSocket, data: dict, user_info: dict, db):
+
+# async def handle_create_product(self, message: Dict[str, Any]):
+#     """Handle create_product message"""
+#     try:
+#         logger.info("📦 Creating new product")
+        
+#         data = message.get('data', {})
+        
+#         # Validate required fields
+#         required_fields = ['name', 'description', 'actual_price', 'selling_price', 'category', 'brand']
+#         for field in required_fields:
+#             if field not in data:
+#                 await self.send_json({'type': 'error', 'message': f'Missing required field: {field}'})
+#                 return
+        
+#         # Set defaults
+#         product_data = {
+#             **data,
+#             'discount': data.get('discount', 0),
+#             'stock': data.get('stock', 0),
+#             'status': data.get('status', 'active'),
+#             'is_active': data.get('status', 'active') == 'active',
+#             'keywords': data.get('keywords', []),
+#             'images': data.get('images', []),
+#             'allow_user_images': data.get('allow_user_images', False),
+#             'allow_user_description': data.get('allow_user_description', False),
+#             'created_at': datetime.utcnow(),
+#             'updated_at': datetime.utcnow()
+#         }
+        
+#         # Insert into database
+#         result = await self.db.products.insert_one(product_data)
+        
+#         logger.info(f"✅ Product created with ID: {result.inserted_id}")
+        
+#         await self.send_json({
+#             'type': 'product_created',
+#             'product_id': str(result.inserted_id)
+#         })
+        
+#     except Exception as e:
+#         logger.error(f"❌ Error creating product: {str(e)}", exc_info=True)
+#         await self.send_json({'type': 'error', 'message': f'Failed to create product: {str(e)}'})
+
+
+# async def handle_update_product(self, message: Dict[str, Any]):
+#     """Handle update_product message"""
+#     try:
+#         logger.info("📦 Updating product")
+        
+#         # if not hasattr(self, 'user') or self.user is None:
+#         #     await self.send_json({'type': 'error', 'message': 'Not authenticated'})
+#         #     return
+        
+#         data = message.get('data', {})
+#         product_id = data.get('id')
+        
+#         if not product_id:
+#             await self.send_json({'type': 'error', 'message': 'Product ID is required'})
+#             return
+        
+#         # Remove id from update data
+#         update_data = {k: v for k, v in data.items() if k != 'id'}
+        
+#         # Update timestamp
+#         update_data['updated_at'] = datetime.utcnow()
+        
+#         # Update status/is_active
+#         if 'status' in update_data:
+#             update_data['is_active'] = update_data['status'] == 'active'
+        
+#         # Update in database
+#         result = await self.db.products.update_one(
+#             {'_id': ObjectId(product_id)},
+#             {'$set': update_data}
+#         )
+        
+#         if result.matched_count == 0:
+#             await self.send_json({'type': 'error', 'message': 'Product not found'})
+#             return
+        
+#         logger.info(f"✅ Product updated: {product_id}")
+        
+#         await self.send_json({
+#             'type': 'product_updated',
+#             'product_id': product_id
+#         })
+        
+#     except Exception as e:
+#         logger.error(f"❌ Error updating product: {str(e)}", exc_info=True)
+#         await self.send_json({'type': 'error', 'message': f'Failed to update product: {str(e)}'})
+
+
+# async def handle_delete_product(self, message: Dict[str, Any]):
+#     """Handle delete_product message"""
+#     try:
+#         logger.info("📦 Deleting product")
+        
+#         # if not hasattr(self, 'user') or self.user is None:
+#         #     await self.send_json({'type': 'error', 'message': 'Not authenticated'})
+#         #     return
+        
+#         data = message.get('data', {})
+#         product_id = data.get('id')
+        
+#         if not product_id:
+#             await self.send_json({'type': 'error', 'message': 'Product ID is required'})
+#             return
+        
+#         # Delete from database
+#         result = await self.db.products.delete_one({'_id': ObjectId(product_id)})
+        
+#         if result.deleted_count == 0:
+#             await self.send_json({'type': 'error', 'message': 'Product not found'})
+#             return
+        
+#         logger.info(f"✅ Product deleted: {product_id}")
+        
+#         await self.send_json({
+#             'type': 'product_deleted',
+#             'product_id': product_id
+#         })
+        
+#     except Exception as e:
+#         logger.error(f"❌ Error deleting product: {str(e)}", exc_info=True)
+#         await self.send_json({'type': 'error', 'message': f'Failed to delete product: {str(e)}'})
+
+
+async def handle_create_product(websocket: WebSocket, data: dict, user_info: dict, db):
     """Create product with multiple Cloudinary images upload"""
     try:
         # ✅ SAFE EMAIL EXTRACTION
@@ -61,7 +335,7 @@ async def create_product(websocket: WebSocket, data: dict, user_info: dict, db):
             )
 
         # Validate required fields
-        required_fields = ["name", "description", "price", "category", "brand", "stock"]
+        required_fields = ["name", "description", "actual_price","selling_price", "category", "brand", "stock"]
         for field in required_fields:
             if field not in data or not data[field]:
                 await websocket.send_json({
@@ -74,7 +348,7 @@ async def create_product(websocket: WebSocket, data: dict, user_info: dict, db):
         images_data = data.get("images", [])
         logger.info(f"Creating product with {len(images_data)} images")
         # print(data)
-        category = await db.find_one("categories", {"_id": ObjectId(data["category"])})
+        category = await db.find_one("categories", {"id": data["category"]})
 
         custom_id = await id_generator.generate_product_id(category['name'])
         # Create product data without images first
@@ -82,15 +356,15 @@ async def create_product(websocket: WebSocket, data: dict, user_info: dict, db):
             "id": custom_id,
             "name": data["name"],
             "description": data["description"],
-            "cost_price": float(data["cost_price"]) if data.get("cost_price") else None,
-            "mrp": float(data["mrp"]),
-            "price": float(data["price"]),
+            "actual_price": float(data["actual_price"]) if data.get("actual_price") else None,
+            "selling_price": float(data["selling_price"]),
+            "discount": float(data["discount"]),
             "category": category['id'],
             "brand": data["brand"],
             "stock": int(data["stock"]),
             "keywords": validate_and_clean_keywords(data.get("keywords", [])),
-            "tags": data.get("tags", []),
-            "attributes": data.get("attributes", {}),
+            # "tags": data.get("tags", []),
+            # "attributes": data.get("attributes", {}),
             "images": [],
             "status": data.get("status", "active"),
             "is_active": data.get("status", "active") == "active",
@@ -205,7 +479,7 @@ async def create_product(websocket: WebSocket, data: dict, user_info: dict, db):
             "message": f"Failed to create product: {str(e)}"
         })
 
-async def update_product(websocket: WebSocket, data: dict, user_info: dict, db):
+async def handle_update_product(websocket: WebSocket, data: dict, user_info: dict, db):
     """Update an existing product with multiple images support"""
     try:
         # ✅ SAFE EMAIL EXTRACTION
@@ -372,7 +646,7 @@ async def update_product(websocket: WebSocket, data: dict, user_info: dict, db):
             "message": f"Failed to update product: {str(e)}"
         })
 
-async def delete_product(websocket: WebSocket, data: dict, user_info: dict, db):
+async def handle_delete_product(websocket: WebSocket, data: dict, user_info: dict, db):
     """Delete a product with all images cleanup"""
     try:
         # ✅ SAFE EMAIL EXTRACTION
