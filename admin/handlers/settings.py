@@ -188,8 +188,8 @@ async def get_pricing_config(websocket: WebSocket, db):
             pricing_config = default_config
         
         pricing_config = serialize_document(pricing_config)
-        # print("============================")
-        # print(pricing_config)
+        print("============================")
+        print(pricing_config)
         await websocket.send_json({
             "type": "pricing_config",
             "data": pricing_config
@@ -202,10 +202,10 @@ async def get_pricing_config(websocket: WebSocket, db):
             "message": "Failed to fetch pricing configuration"
         })
 
-async def update_pricing_config(websocket: WebSocket, data: dict, user_info: dict, db):
+async def update_pricing_config(websocket: WebSocket, config_data: dict, user_info: dict, db):
     """Update pricing configuration"""
     try:
-        config_data = data.get("data", {})
+        # config_data = data
         print("Received config_data:", config_data)
         
         if not config_data:

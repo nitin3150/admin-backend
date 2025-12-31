@@ -3,7 +3,7 @@ from admin.connection_manager import manager
 from admin.auth import verify_admin_token, authenticate_admin
 from db.db_manager import get_database
 import logging
-from admin.handlers.products import send_products, create_product, delete_product, update_product
+from admin.handlers.products import handle_create_product, handle_delete_product, handle_get_products, handle_update_product
 from admin.handlers.brand import send_brands, create_brand, update_brand, delete_brand
 from admin.handlers.orders import send_orders,update_order_status,get_delivery_requests_for_order,assign_delivery_partner,get_orders_for_download
 from admin.handlers.category import send_categories, create_categories, update_category, delete_category
@@ -165,21 +165,21 @@ async def handle_admin_messages(websocket: WebSocket, user_info: dict):
             elif msg_type == "get_products":
                 # Check if client is still connected before processing
                 if websocket.client_state.value == 1:
-                    await send_products(websocket, db)
+                    await handle_get_products(websocket, db)
                 else:
                     logger.info("Client disconnected before processing get_products")
             
             elif msg_type == "create_product":
                 if websocket.client_state.value == 1:
-                    await create_product(websocket, message.get("data"), user_info, db)
+                    await handle_create_product(websocket, message.get("data"), user_info, db)
             
             elif msg_type == "update_product":
                 if websocket.client_state.value == 1:
-                    await update_product(websocket, message.get("data"), user_info, db)
+                    await handle_update_product(websocket, message.get("data"), user_info, db)
             
             elif msg_type == "delete_product":
                 if websocket.client_state.value == 1:
-                    await delete_product(websocket, message.get("data"), user_info, db)
+                    await handle_delete_product(websocket, message.get("data"), user_info, db)
            
             # Orders handlers
             elif msg_type == "get_orders":
@@ -239,6 +239,7 @@ async def handle_admin_messages(websocket: WebSocket, user_info: dict):
                 await get_pricing_config(websocket, db)
                 
             elif msg_type == "update_pricing_config":
+                # print(message.get("data"))
                 await update_pricing_config(websocket, message.get("data"), user_info, db)
 
             # Settings handlers
@@ -364,7 +365,7 @@ async def send_initial_data(websocket: WebSocket, channel: str, db):
         logger.info(f"Sending initial data for channel: {channel}")
         
         if channel == "products":
-            await send_products(websocket, db)
+            await handle_get_products(websocket, db)
         elif channel == "orders":
             await send_orders(websocket, {}, db)
         elif channel == "inventory":
