@@ -58,6 +58,7 @@ class OrderBase(BaseModel):
     order_status: str = "pending"
     status_change_history: List[StatusChange] = []
     delivery_partner: Optional[str] = None
+    order_type: Optional[str] = None
 
 
 class OrderCreate(OrderBase):
