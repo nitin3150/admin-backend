@@ -1,158 +1,162 @@
 from fastapi import WebSocket
 import logging
 from datetime import datetime
-from admin.utils.serialize import serialize_document
+# from admin.utils.serialize import serialize_document
 from typing import Dict, Any
 import math
 
 logger = logging.getLogger(__name__)
 
+def serialize_document(value):
+    if isinstance(value, dict):
+        return {k: serialize_document(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [serialize_document(v) for v in value]
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value
+
 async def send_orders(websocket: WebSocket, filters: dict, db):
-    """Send orders with advanced filtering and pagination - FIXED for custom IDs"""
     try:
-        # Check if WebSocket is still connected
-        if hasattr(websocket, 'client_state') and websocket.client_state.value != 1:
-            logger.warning("WebSocket connection is not active, skipping send_orders")
+        if websocket.client_state.value != 1:
             return
-        
-        # Build MongoDB query from filters
+
         query = await build_orders_query(filters)
-        
-        # Pagination parameters
-        page = filters.get("page", 1)
-        limit = filters.get("limit", 10)
+
+        page = int(filters.get("page", 1))
+        limit = int(filters.get("limit", 10))
         skip = (page - 1) * limit
-        
-        logger.info(f"Orders query: {query}")
-        logger.info(f"Pagination: page={page}, limit={limit}, skip={skip}")
-        
-        # Get total count for pagination
+
         total_count = await db.count_documents("orders", query)
-        
-        # Sort by created_at descending (most recent first)
-        sort_criteria = [("created_at", -1)]
-        
-        # Get orders with pagination
+        total_pages = max(1, math.ceil(total_count / limit))
+
         orders = await db.find_many(
-            "orders", 
-            query, 
-            sort=sort_criteria,
+            "orders",
+            query,
+            sort=[("created_at", -1)],
             skip=skip,
-            limit=limit
+            limit=limit,
         )
-        
-        # Calculate pagination info
-        total_pages = math.ceil(total_count / limit) if total_count > 0 else 1
-        has_prev = page > 1
-        has_next = page < total_pages
-        
-        pagination_info = {
-            "current_page": page,
-            "total_pages": total_pages,
-            "total_orders": total_count,
-            "has_prev": has_prev,
-            "has_next": has_next,
-            "page_size": limit
-        }
-        
-        logger.info(f"Pagination info: {pagination_info}")
-        
-        # Process orders with optimized queries
-        serialized_orders = []
-        
-        # ✅ Batch fetch users using custom ID field
-        user_ids = [order.get("user") for order in orders if order.get("user")]
-        delivery_partner_ids = [order.get("delivery_partner") for order in orders 
-                             if order.get("delivery_partner")]
-        
-        # ✅ Fetch users in batch using custom 'id' field
-        users_dict = {}
-        if user_ids:
-            users = await db.find_many("users", {"id": {"$in": user_ids}})
-            users_dict = {str(user["id"]): user for user in users}
-        
-        # ✅ Fetch delivery partners in batch using custom 'id' field
-        delivery_partners_dict = {}
-        if delivery_partner_ids:
-            partners = await db.find_many("users", {"id": {"$in": delivery_partner_ids}})
-            delivery_partners_dict = {str(partner["id"]): partner for partner in partners}
-        
-        # ✅ Batch fetch products using custom ID field
-        product_ids = []
-        for order in orders:
-            if order.get("items"):
-                for item in order["items"]:
-                    if item.get("product"):
-                        product_ids.append(item["product"])
-        
-        products_dict = {}
-        if product_ids:
-            products = await db.find_many("products", {"id": {"$in": product_ids}})
-            products_dict = {str(product["id"]): product for product in products}
-        
-        # Process each order
-        for order in orders:
-            try:
-                # ✅ Get user info using custom ID
-                user_id = str(order.get("user", ""))
-                user = users_dict.get(user_id, {})
-                
-                # ✅ Get delivery partner info using custom ID
-                delivery_partner_id = str(order.get("delivery_partner", "")) if order.get("delivery_partner") else None
-                delivery_partner = delivery_partners_dict.get(delivery_partner_id) if delivery_partner_id else None
-                
-                # ✅ Process order items using custom product IDs
-                if order.get("items"):
-                    for item in order["items"]:
-                        product_id = str(item.get("product", ""))
-                        product = products_dict.get(product_id, {})
-                        item["product_name"] = product.get("name", "Unknown Product")
-                        item["product_image"] = product.get("images", [])
-                
-                # Serialize the order
-                serialized_order = serialize_document(order)
-                
-                # ✅ Use custom ID instead of _id for frontend
-                serialized_order["id"] = serialized_order.get("id", str(serialized_order.get("_id", "")))
-                serialized_order["total"] = serialized_order.get("total_amount", 0)
-                serialized_order["status"] = serialized_order.get("order_status", "pending")
-                
-                # Add user information
-                serialized_order["user_name"] = user.get("name", "Unknown")
-                serialized_order["user_email"] = user.get("email", "")
-                serialized_order["user_phone"] = user.get("phone", "")
-                
-                # Add delivery partner information
-                serialized_order["delivery_partner_name"] = (
-                    delivery_partner.get("name") if delivery_partner else None
-                )
-                
-                serialized_orders.append(serialized_order)
-                
-            except Exception as serialize_error:
-                logger.error(f"Error serializing order {order.get('id')}: {serialize_error}")
-                continue
-        
-        logger.info(f"Sending {len(serialized_orders)} serialized orders with pagination")
+
+        # Batch fetch users
+        user_ids = list({o["user"] for o in orders if o.get("user")})
+        partner_ids = list({o["delivery_partner"] for o in orders if o.get("delivery_partner")})
+
+        users = await db.find_many("users", {"id": {"$in": user_ids}})
+        partners = await db.find_many("users", {"id": {"$in": partner_ids}})
+
+        users_map = {u["id"]: u for u in users}
+        partners_map = {p["id"]: p for p in partners}
+
+        serialized = []
+        for o in orders:
+            order = serialize_document(o)
+
+            user = users_map.get(order["user"], {})
+            partner = partners_map.get(order.get("delivery_partner"), {})
+
+            serialized.append({
+                "id": str(order.get("id") or order.get("_id")),
+                "user_name": user.get("name", "Unknown"),
+                "user_email": user.get("email", ""),
+                "user_phone": user.get("phone", ""),
+                "delivery_partner_name": partner.get("name") if partner else None,
+                "total": order.get("total_amount", 0),
+                "status": order.get("order_status", "pending"),
+                "order_type": order.get("order_type", "product"),
+                "created_at": order.get("created_at", ""),
+            })
 
         await websocket.send_json({
             "type": "orders_data",
-            "channel": "orders",
-            "orders": serialized_orders,
-            "pagination": pagination_info
+            "orders": serialized,
+            "pagination": {
+                "current_page": page,
+                "total_pages": total_pages,
+                "total_items": total_count,
+                "has_prev": page > 1,
+                "has_next": page < total_pages,
+            },
         })
-        
+
     except Exception as e:
-        logger.error(f"Error sending orders: {e}")
-        import traceback
-        logger.error(f"Full traceback: {traceback.format_exc()}")
-        try:
+        logger.exception("send_orders failed")
+        await websocket.send_json({"type": "error", "message": "Failed to fetch orders"})
+
+async def send_order_details(websocket: WebSocket, data: dict, db):
+    try:
+        order = await db.find_one("orders", {"id": data.get('order_id')})
+        if not order:
             await websocket.send_json({
                 "type": "error",
-                "message": "Failed to fetch orders"
+                "message": "Order not found",
             })
-        except:
-            logger.info("Could not send error message - client disconnected")
+            return
+
+        # Copy safely
+        order = serialize_document(dict(order))
+        order["items"] = [dict(i) for i in order.get("items", [])]
+
+        # Fetch user
+        user = await db.find_one("users", {"id": order["user"]})
+
+        # Fetch products
+        product_ids = [
+            i["product"] for i in order["items"]
+            if i.get("type") == "product"
+        ]
+
+        products = await db.find_many("products", {"id": {"$in": product_ids}})
+        products_map = {p["id"]: p for p in products}
+
+        for item in order["items"]:
+            if item["type"] == "product":
+                product = products_map.get(item["product"], {})
+                item["product_name"] = product.get("name")
+                item["product_image"] = product.get("images", [])
+
+        # Normalize addresses
+        if "delivery_address" in order:
+            addr = order["delivery_address"]
+            order["delivery_address"] = {
+                "address": addr.get("street"),
+                "city": addr.get("city"),
+                "state": addr.get("state"),
+                "pincode": addr.get("pincode"),
+                "phone": addr.get("mobile_number"),
+            }
+
+        await websocket.send_json({
+            "type": "order_details",
+            "order": {
+                "id": str(order.get("id") or order.get("_id")),
+                "order_type": order.get("order_type", "product"),
+                "status": order.get("order_status", "pending"),
+                "status_history": order.get("status_change_history", []),
+                "items": order["items"],
+                "delivery_address": order.get("delivery_address"),
+                "total": order.get("total_amount", 0),
+                "promo_code": order.get("promo_code",""),
+                "promo_discount": order.get("promo_discount",0),
+                "tip_amount": order.get("tip_amount",0),
+                "payment_method": order.get("payment_method",""),
+                "payment_status": order.get("payment_status","pending"),
+                "created_at": order.get("created_at",""),
+                "customer": {
+                    "name": user.get("name") if user else None,
+                    "email": user.get("email") if user else None,
+                    "phone": user.get("phone") if user else None,
+                },
+            }
+        })
+
+    except Exception:
+        logger.exception("send_order_details failed")
+        await websocket.send_json({
+            "type": "error",
+            "message": "Failed to fetch order details",
+        })
+
 
 async def build_orders_query(filters: Dict[str, Any]) -> Dict[str, Any]:
     """Build MongoDB query from filters - FIXED for custom IDs"""
