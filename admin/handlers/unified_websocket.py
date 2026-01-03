@@ -19,10 +19,13 @@ from admin.handlers.auth import (
     handle_update_user_status
 )
 from admin.handlers.settings import (
+    get_active_pincodes,
     send_inventory_status, 
     handle_get_analytics, 
     get_pricing_config, 
-    update_pricing_config
+    update_pricing_config,
+    update_pincodes,
+    add_pincodes
 )
 from admin.handlers.notifications import (
     get_all_notifications,
@@ -248,6 +251,15 @@ async def handle_admin_messages(websocket: WebSocket, user_info: dict):
             # Settings handlers
             elif msg_type == "get_inventory_status":
                 await send_inventory_status(websocket, db)
+
+            elif msg_type == "get_pincodes":
+                await get_active_pincodes(websocket,db)
+            
+            elif msg_type == "add_pincode":
+                await add_pincodes(websocket,message.get("data"),db)
+
+            elif msg_type == "update_pincodes":
+                await update_pincodes(websocket,message.get("data"),db)
 
             # Customers handlers
             elif msg_type == "get_customers":
