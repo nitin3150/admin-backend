@@ -1,7 +1,9 @@
+from bson import ObjectId
 from fastapi import WebSocket
 import logging
 from datetime import datetime, timedelta
 from admin.utils.serialize import serialize_document
+from schema.settings import Pincodes, UpdatePincodes
 
 logger = logging.getLogger(__name__)
 
@@ -246,4 +248,102 @@ async def update_pricing_config(websocket: WebSocket, config_data: dict, user_in
         await websocket.send_json({
             "type": "error",
             "message": f"Failed to update pricing: {str(e)}"
+        })
+    
+async def get_active_pincodes(websocket: WebSocket, db):
+    try:
+        result = await db.find_many('pincodes', {})
+
+        if not result:
+            logger.info("No pincodes available")
+            await websocket.send_json({
+                "type": "pincodes_data",
+                "available_pincodes": []
+            })
+            return
+
+        pincodes_data = [
+            {
+                "pincodeId": doc["_id"],
+                "pincode": doc["pincode"],
+                "city": doc["city"],
+                "state": doc["state"],
+                "status": doc["status"]
+            }
+            for doc in result
+        ]
+
+        await websocket.send_json({
+            "type": "pincodes_data",
+            "available_pincodes": serialize_document(pincodes_data)
+        })
+
+    except Exception as e:
+        logger.exception("Error getting pincodes")
+        await websocket.send_json({
+            "type": "error",
+            "message": "Failed to get the available pincodes"
+        })
+
+async def add_pincodes(websocket: WebSocket, data: Pincodes, db):
+    try:
+
+        result = await db.insert_one('pincodes', data)
+        if not result:
+            await websocket.send_json({
+                "type": "error",
+                "message": "Pincode insertion failed"
+            })
+            return
+
+        data = serialize_document(data)
+        await websocket.send_json({
+            "type": "pincode_created",
+            "data": {
+                "_id": str(result),
+                **data
+            }
+        })
+
+    except Exception:
+        logger.exception("Failed to insert pincode")
+        await websocket.send_json({
+            "type": "error",
+            "message": "Pincode insertion failed"
+        })
+
+async def update_pincodes(websocket: WebSocket, data: dict, db):
+    try:
+        pincode = UpdatePincodes(**data)
+
+        existing = await db.find_one(
+            'pincodes',
+            {'_id': ObjectId(pincode.id)}
+        )
+        if not existing:
+            await websocket.send_json({
+                "type": "info",
+                "message": "Pincode does not exist"
+            })
+            return
+
+        await db.update_one(
+            'pincodes',
+            {"_id": ObjectId(pincode.id)},
+            {"$set": pincode.dict(exclude={"id"}, exclude_unset=True)}
+        )
+
+        # Send response with both _id and pincodeId for compatibility
+        await websocket.send_json({
+            "type": "pincode_updated",
+            "_id": pincode.id,  # Include _id at root level
+            "pincodeId": pincode.id,  # Keep for backwards compatibility
+            **pincode.dict(exclude={"id"}, exclude_unset=True)
+        })
+
+    except Exception:
+        logger.exception("Error while updating pincode")
+        await websocket.send_json({
+            "type": "error",
+            "message": "Error while updating pincode"
         })
