@@ -13,7 +13,11 @@ def serialize_document(value):
     if isinstance(value, list):
         return [serialize_document(v) for v in value]
     if isinstance(value, datetime):
-        return value.isoformat()
+        # Always output as UTC with Z suffix so frontends can convert to local timezone
+        iso = value.isoformat()
+        if not iso.endswith("Z") and "+" not in iso:
+            iso += "Z"
+        return iso
     return value
 
 async def send_orders(websocket: WebSocket, filters: dict, db):
@@ -55,11 +59,13 @@ async def send_orders(websocket: WebSocket, filters: dict, db):
             user = users_map.get(order["user"], {})
             partner = partners_map.get(order.get("delivery_partner"), {})
 
+            # Use delivery address name/phone (order-specific) with fallback to account owner
+            delivery_addr = order.get("delivery_address", {}) or {}
             serialized.append({
                 "id": str(order.get("id") or order.get("_id")),
-                "user_name": user.get("name", "Unknown"),
+                "user_name": delivery_addr.get("name") or user.get("name", "Unknown"),
                 "user_email": user.get("email", ""),
-                "user_phone": user.get("phone", ""),
+                "user_phone": delivery_addr.get("mobile_number") or user.get("phone", ""),
                 "delivery_partner_name": partner.get("name") if partner else None,
                 "total": order.get("total_amount", 0),
                 "status": order.get("order_status", "pending"),
@@ -115,10 +121,11 @@ async def send_order_details(websocket: WebSocket, data: dict, db):
                 item["product_name"] = product.get("name")
                 item["product_image"] = product.get("images", [])
 
-        # Normalize addresses
+        # Normalize addresses (preserve name and phone from the delivery address)
         if "delivery_address" in order:
             addr = order["delivery_address"]
             order["delivery_address"] = {
+                "name": addr.get("name"),
                 "address": addr.get("street"),
                 "city": addr.get("city"),
                 "state": addr.get("state"),
@@ -143,9 +150,9 @@ async def send_order_details(websocket: WebSocket, data: dict, db):
                 "payment_status": order.get("payment_status","pending"),
                 "created_at": order.get("created_at",""),
                 "customer": {
-                    "name": user.get("name") if user else None,
+                    "name": (order.get("delivery_address", {}) or {}).get("name") or (user.get("name") if user else None),
                     "email": user.get("email") if user else None,
-                    "phone": user.get("phone") if user else None,
+                    "phone": (order.get("delivery_address", {}) or {}).get("phone") or (user.get("phone") if user else None),
                 },
             }
         })
@@ -529,10 +536,11 @@ async def get_orders_for_download(websocket: WebSocket, filters: dict, db):
                 serialized_order["total"] = serialized_order.get("total_amount", 0)
                 serialized_order["status"] = serialized_order.get("order_status", "pending")
                 
-                # Add user information
-                serialized_order["user_name"] = user.get("name", "Unknown")
+                # Add user information (prefer delivery address name/phone for the order)
+                order_addr = order.get("delivery_address", {}) or {}
+                serialized_order["user_name"] = order_addr.get("name") or user.get("name", "Unknown")
                 serialized_order["user_email"] = user.get("email", "")
-                serialized_order["user_phone"] = user.get("phone", "")
+                serialized_order["user_phone"] = order_addr.get("mobile_number") or user.get("phone", "")
                 
                 # Add delivery partner information
                 serialized_order["delivery_partner_name"] = (
