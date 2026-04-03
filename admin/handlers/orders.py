@@ -61,6 +61,12 @@ async def send_orders(websocket: WebSocket, filters: dict, db):
 
             # Use delivery address name/phone (order-specific) with fallback to account owner
             delivery_addr = order.get("delivery_address", {}) or {}
+            # Derive actual item types from items array
+            items = order.get("items", [])
+            item_types = list({i.get("type") for i in items if i.get("type")})
+            if not item_types:
+                item_types = [order.get("order_type", "product")]
+
             serialized.append({
                 "id": str(order.get("id") or order.get("_id")),
                 "user_name": delivery_addr.get("name") or user.get("name", "Unknown"),
@@ -70,6 +76,7 @@ async def send_orders(websocket: WebSocket, filters: dict, db):
                 "total": order.get("total_amount", 0),
                 "status": order.get("order_status", "pending"),
                 "order_type": order.get("order_type", "product"),
+                "item_types": item_types,
                 "created_at": order.get("created_at", ""),
             })
 
