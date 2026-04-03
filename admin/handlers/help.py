@@ -2,9 +2,14 @@ from fastapi import WebSocket
 from bson import ObjectId
 from datetime import datetime
 from admin.utils.serialize import serialize_document
+import httpx
+import os
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Customer backend URL for pushing chat messages to user WebSocket
+CUSTOMER_API_URL = os.getenv("CUSTOMER_API_URL", "http://localhost:8000/api")
 
 async def get_tickets(websocket: WebSocket, filters: dict, db):
     try:
@@ -342,7 +347,24 @@ async def respond_to_ticket(websocket: WebSocket, data: dict, db):
         )
         
         logger.info(f"Admin responded to ticket {ticket_id}")
-        
+
+        # Push to user's WebSocket via customer backend (for live_chat tickets)
+        if ticket.get("category") == "live_chat" and ticket.get("user_id"):
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    await client.post(
+                        f"{CUSTOMER_API_URL}/support/chat/push",
+                        json={
+                            "ticket_id": ticket_id,
+                            "user_id": ticket["user_id"],
+                            "message": response_message,
+                            "sender_name": "Support Team",
+                        }
+                    )
+                logger.info(f"Pushed chat message to user {ticket['user_id']}")
+            except Exception as push_err:
+                logger.warning(f"Failed to push to customer backend: {push_err}")
+
         # Send success response with properly serialized message
         response_data = {
             "type": "ticket_updated",
@@ -353,10 +375,10 @@ async def respond_to_ticket(websocket: WebSocket, data: dict, db):
                 "message": admin_message["message"],
                 "sender_type": admin_message["sender_type"],
                 "sender_name": admin_message["sender_name"],
-                "created_at": admin_message["created_at"].isoformat()  # FIXED: Convert datetime
+                "created_at": admin_message["created_at"].isoformat()
             }
         }
-        
+
         await websocket.send_json(response_data)
         
     except Exception as e:
