@@ -103,8 +103,12 @@ async def send_order_details(websocket: WebSocket, data: dict, db):
         order = serialize_document(dict(order))
         order["items"] = [dict(i) for i in order.get("items", [])]
 
-        # Fetch user
+        # Fetch user and delivery partner
         user = await db.find_one("users", {"id": order["user"]})
+
+        partner = None
+        if order.get("delivery_partner"):
+            partner = await db.find_one("users", {"id": order["delivery_partner"]})
 
         # Fetch products
         product_ids = [
@@ -148,6 +152,7 @@ async def send_order_details(websocket: WebSocket, data: dict, db):
                 "tip_amount": order.get("tip_amount",0),
                 "payment_method": order.get("payment_method",""),
                 "payment_status": order.get("payment_status","pending"),
+                "delivery_partner_name": partner.get("name") if partner else None,
                 "created_at": order.get("created_at",""),
                 "customer": {
                     "name": (order.get("delivery_address", {}) or {}).get("name") or (user.get("name") if user else None),
