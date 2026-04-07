@@ -31,7 +31,7 @@ async def get_tickets(websocket: WebSocket, filters: dict, db):
         tickets = await db.find_many(
             "support_tickets", 
             query, 
-            sort=[("created_at", -1)]
+            sort=[("updated_at", -1)]
         )
         
         logger.info(f"Found {len(tickets)} tickets")
