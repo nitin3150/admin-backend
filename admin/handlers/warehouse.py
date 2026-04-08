@@ -1,5 +1,6 @@
 from fastapi import WebSocket
 from datetime import datetime
+from bson import ObjectId
 from admin.utils.id_generator import id_generator
 from admin.connection_manager import manager
 import logging
@@ -12,6 +13,8 @@ def serialize_document(value):
         return {k: serialize_document(v) for k, v in value.items()}
     if isinstance(value, list):
         return [serialize_document(v) for v in value]
+    if isinstance(value, ObjectId):
+        return str(value)
     if isinstance(value, datetime):
         iso = value.isoformat()
         if not iso.endswith("Z") and "+" not in iso:
