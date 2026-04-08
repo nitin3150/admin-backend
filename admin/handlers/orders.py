@@ -126,11 +126,30 @@ async def send_order_details(websocket: WebSocket, data: dict, db):
         products = await db.find_many("products", {"id": {"$in": product_ids}})
         products_map = {p["id"]: p for p in products}
 
+        # Fetch warehouses for products
+        warehouse_ids = list({
+            p.get("warehouse") for p in products
+            if p.get("warehouse")
+        })
+        warehouses_map = {}
+        if warehouse_ids:
+            warehouses = await db.find_many("warehouses", {"id": {"$in": warehouse_ids}})
+            warehouses_map = {w["id"]: w for w in warehouses}
+
         for item in order["items"]:
             if item["type"] == "product":
                 product = products_map.get(item["product"], {})
                 item["product_name"] = product.get("name")
                 item["product_image"] = product.get("images", [])
+                # Add warehouse info
+                warehouse_id = product.get("warehouse")
+                if warehouse_id and warehouse_id in warehouses_map:
+                    wh = warehouses_map[warehouse_id]
+                    item["warehouse_name"] = wh.get("name")
+                    item["warehouse_id"] = warehouse_id
+                else:
+                    item["warehouse_name"] = None
+                    item["warehouse_id"] = None
 
         # Normalize addresses (preserve name and phone from the delivery address)
         if "delivery_address" in order:
