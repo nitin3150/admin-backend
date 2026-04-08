@@ -335,7 +335,7 @@ async def handle_create_product(websocket: WebSocket, data: dict, user_info: dic
             )
 
         # Validate required fields
-        required_fields = ["name", "description", "actual_price","selling_price", "category", "brand", "stock"]
+        required_fields = ["name", "description", "actual_price","selling_price", "category", "brand", "stock", "warehouse"]
         for field in required_fields:
             if field not in data or not data[field]:
                 await websocket.send_json({
@@ -361,6 +361,7 @@ async def handle_create_product(websocket: WebSocket, data: dict, user_info: dic
             "discount": float(data["discount"]),
             "category": category['id'],
             "brand": data["brand"],
+            "warehouse": data.get("warehouse", ""),
             "stock": int(data["stock"]),
             "keywords": validate_and_clean_keywords(data.get("keywords", [])),
             # "tags": data.get("tags", []),

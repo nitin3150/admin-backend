@@ -37,6 +37,9 @@ class IDGenerator:
         'invoice': 'INV'
     }
     
+    # Warehouse prefix
+    PREFIXES['warehouse'] = 'WH'
+
     # Category codes for products
     CATEGORY_CODES = {
         'gifts': 'GIFT',
@@ -244,6 +247,23 @@ class IDGenerator:
         
         return category_id
     
+    async def generate_warehouse_id(self, warehouse_name: str) -> str:
+        """
+        Generate warehouse ID: WH-MAINST
+
+        Format: PREFIX-NAME
+        Example: WH-MAINSTREET
+        """
+        prefix = self.PREFIXES['warehouse']
+        name_part = warehouse_name.upper().replace(' ', '')[:10]
+
+        # Add random suffix to ensure uniqueness
+        random_part = self._generate_random_suffix(4)
+
+        warehouse_id = f"{prefix}{name_part}{random_part}"
+
+        return warehouse_id
+
     async def generate_brand_id(self, brand_name: str) -> str:
         """
         Generate brand ID: BRD-SAMSUNG

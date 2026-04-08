@@ -13,6 +13,7 @@ from admin.handlers.requests import get_requests,update_requests_status
 from admin.handlers.coupons import get_coupons,create_coupons,update_coupon,delete_coupon,toggle_coupon
 from admin.handlers.shop_status import get_shop_status,update_shop_status
 from admin.handlers.porter import get_porter_requests, update_porter_request_status, assign_porter_partner, get_porter_stats
+from admin.handlers.warehouse import get_warehouses, create_warehouse, update_warehouse, delete_warehouse
 from admin.handlers.auth import (
     handle_get_users, 
     handle_update_user_role, 
@@ -348,6 +349,19 @@ async def handle_admin_messages(websocket: WebSocket, user_info: dict):
             
             elif msg_type == "get_porter_stats":
                 await get_porter_stats(websocket, message.get("data"), db)
+
+            # Warehouse handlers
+            elif msg_type == "get_warehouses":
+                await get_warehouses(websocket, db)
+
+            elif msg_type == "create_warehouse":
+                await create_warehouse(websocket, message.get("data"), db)
+
+            elif msg_type == "update_warehouse":
+                await update_warehouse(websocket, message.get("data"), db)
+
+            elif msg_type == "delete_warehouse":
+                await delete_warehouse(websocket, message.get("data"), db)
 
             else:
                 logger.warning(f"Unknown message type: {msg_type}")
