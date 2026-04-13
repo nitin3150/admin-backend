@@ -14,6 +14,15 @@ from admin.handlers.coupons import get_coupons,create_coupons,update_coupon,dele
 from admin.handlers.shop_status import get_shop_status,update_shop_status
 from admin.handlers.porter import get_porter_requests, update_porter_request_status, assign_porter_partner, get_porter_stats
 from admin.handlers.warehouse import get_warehouses, create_warehouse, update_warehouse, delete_warehouse
+from admin.handlers.hub_warehouse import (
+    get_hubs, create_hub, update_hub,
+    get_pg_warehouses, create_pg_warehouse, update_pg_warehouse,
+    get_warehouse_pincodes, assign_warehouse_pincodes,
+    update_warehouse_pincode_priority, delete_warehouse_pincode,
+)
+from admin.handlers.inventory_mgmt import (
+    handle_get_inventory, handle_restock, handle_get_audit_log, handle_get_low_stock,
+)
 from admin.handlers.auth import (
     handle_get_users, 
     handle_update_user_role, 
@@ -362,6 +371,52 @@ async def handle_admin_messages(websocket: WebSocket, user_info: dict):
 
             elif msg_type == "delete_warehouse":
                 await delete_warehouse(websocket, message.get("data"), db)
+
+            # Hub handlers (PostgreSQL)
+            elif msg_type == "get_hubs":
+                await get_hubs(websocket)
+
+            elif msg_type == "create_hub":
+                await create_hub(websocket, message.get("data"))
+
+            elif msg_type == "update_hub":
+                await update_hub(websocket, message.get("data"))
+
+            # PG Warehouse handlers
+            elif msg_type == "get_pg_warehouses":
+                await get_pg_warehouses(websocket)
+
+            elif msg_type == "create_pg_warehouse":
+                await create_pg_warehouse(websocket, message.get("data"))
+
+            elif msg_type == "update_pg_warehouse":
+                await update_pg_warehouse(websocket, message.get("data"))
+
+            # Pincode management
+            elif msg_type == "get_warehouse_pincodes":
+                await get_warehouse_pincodes(websocket, message.get("data"))
+
+            elif msg_type == "assign_warehouse_pincodes":
+                await assign_warehouse_pincodes(websocket, message.get("data"))
+
+            elif msg_type == "update_warehouse_pincode_priority":
+                await update_warehouse_pincode_priority(websocket, message.get("data"))
+
+            elif msg_type == "delete_warehouse_pincode":
+                await delete_warehouse_pincode(websocket, message.get("data"))
+
+            # Inventory management (PostgreSQL)
+            elif msg_type == "get_inventory":
+                await handle_get_inventory(websocket, message.get("data", {}))
+
+            elif msg_type == "restock_inventory":
+                await handle_restock(websocket, message.get("data"))
+
+            elif msg_type == "get_inventory_audit":
+                await handle_get_audit_log(websocket, message.get("data"))
+
+            elif msg_type == "get_low_stock":
+                await handle_get_low_stock(websocket, message.get("data", {}))
 
             else:
                 logger.warning(f"Unknown message type: {msg_type}")
