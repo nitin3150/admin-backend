@@ -133,8 +133,29 @@ async def send_order_details(websocket: WebSocket, data: dict, db):
         })
         warehouses_map = {}
         if warehouse_ids:
-            warehouses = await db.find_many("warehouses", {"id": {"$in": warehouse_ids}})
-            warehouses_map = {w["id"]: w for w in warehouses}
+            try:
+                from admin.db.postgres import async_session_factory
+                from admin.models.hub import Warehouse
+                from sqlalchemy import select
+                
+                async with async_session_factory() as pg_db:
+                    pg_warehouses = (
+                        await pg_db.execute(
+                            select(Warehouse).where(Warehouse.warehouse_id.in_(warehouse_ids))
+                        )
+                    ).scalars().all()
+                    for w in pg_warehouses:
+                        warehouses_map[w.warehouse_id] = w
+                        warehouses_map[str(w.id)] = w
+            except Exception as e:
+                logger.error(f"Fast fallback postgres warehouse error: {e}")
+            
+            # Fallback to mongo warehouses for backward compatibility
+            missing_ids = [wid for wid in warehouse_ids if wid not in warehouses_map]
+            if missing_ids:
+                mongo_warehouses = await db.find_many("warehouses", {"id": {"$in": missing_ids}})
+                for w in mongo_warehouses:
+                    warehouses_map[w["id"]] = w
 
         for item in order["items"]:
             if item["type"] == "product":
@@ -145,7 +166,7 @@ async def send_order_details(websocket: WebSocket, data: dict, db):
                 warehouse_id = product.get("warehouse")
                 if warehouse_id and warehouse_id in warehouses_map:
                     wh = warehouses_map[warehouse_id]
-                    item["warehouse_name"] = wh.get("name")
+                    item["warehouse_name"] = getattr(wh, "name", None) if not isinstance(wh, dict) else wh.get("name")
                     item["warehouse_id"] = warehouse_id
                 else:
                     item["warehouse_name"] = None
