@@ -109,6 +109,23 @@ class AdminConnectionManager:
         for ws in disconnected:
             self.disconnect(ws)
     
+    async def broadcast(self, message: dict, exclude: WebSocket = None):
+        """Broadcast to all connected admins, optionally excluding one."""
+        disconnected = []
+        for ws in self.active_connections:
+            if ws is exclude:
+                continue
+            try:
+                await ws.send_json(message)
+            except Exception:
+                disconnected.append(ws)
+        for ws in disconnected:
+            self.disconnect(ws)
+
+    async def broadcast_to_all(self, message: dict):
+        """Broadcast to all connected admins."""
+        await self.broadcast(message)
+
     def get_admin_stats(self):
         """Get current admin activity stats"""
         return {
