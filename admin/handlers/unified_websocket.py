@@ -44,6 +44,12 @@ from admin.handlers.notifications import (
     delete_notification,
     get_notification_stats
 )
+from admin.handlers.marketing import (
+    handle_get_marketing_banners,
+    handle_create_marketing_banner,
+    handle_update_marketing_banner,
+    handle_delete_marketing_banner,
+)
 logger = logging.getLogger(__name__)
 
 async def admin_websocket_handler(websocket: WebSocket):
@@ -417,6 +423,19 @@ async def handle_admin_messages(websocket: WebSocket, user_info: dict):
 
             elif msg_type == "get_low_stock":
                 await handle_get_low_stock(websocket, message.get("data", {}))
+
+            # Marketing banner handlers
+            elif msg_type == "get_marketing_banners":
+                await handle_get_marketing_banners(websocket, db)
+
+            elif msg_type == "create_marketing_banner":
+                await handle_create_marketing_banner(websocket, message.get("data", {}), user_info, db)
+
+            elif msg_type == "update_marketing_banner":
+                await handle_update_marketing_banner(websocket, message.get("data", {}), user_info, db)
+
+            elif msg_type == "delete_marketing_banner":
+                await handle_delete_marketing_banner(websocket, message.get("data", {}), db)
 
             else:
                 logger.warning(f"Unknown message type: {msg_type}")
